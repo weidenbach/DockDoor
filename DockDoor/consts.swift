@@ -306,6 +306,10 @@ extension Defaults.Keys {
 
     static let alternateKeybindKey = Key<UInt16>("alternateKeybindKey", default: 0)
     static let alternateKeybindMode = Key<SwitcherInvocationMode>("alternateKeybindMode", default: .activeAppOnly)
+
+    // MARK: - Multi-Monitor Support
+
+    static let enableMultiMonitorWindowGrouping = Key<Bool>("enableMultiMonitorWindowGrouping", default: true)
 }
 
 // MARK: Dock Locking

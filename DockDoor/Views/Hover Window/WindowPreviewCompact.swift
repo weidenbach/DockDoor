@@ -4,6 +4,8 @@ import SwiftUI
 struct WindowPreviewCompact: View, Equatable {
     let windowInfo: WindowInfo
     let index: Int
+    /// Which monitor slot (0 = main, 1 = second, 2 = third) determines the shortcut key row.
+    var monitorSlot: Int = 0
     let dockPosition: DockPosition
     let uniformCardRadius: Bool
     let handleWindowAction: (WindowAction) -> Void
@@ -24,7 +26,7 @@ struct WindowPreviewCompact: View, Equatable {
     static func == (l: Self, r: Self) -> Bool {
         l.index == r.index && l.isSelected == r.isSelected
             && l.uniformCardRadius == r.uniformCardRadius
-            && l.windowSwitcherActive == r.windowSwitcherActive
+            && l.windowSwitcherActive == r.windowSwitcherActive && l.monitorSlot == r.monitorSlot
             && l.appearance == r.appearance
             && l.windowInfo.viewSnapshot == r.windowInfo.viewSnapshot
             && l.backgroundAppearance == r.backgroundAppearance
@@ -69,18 +71,28 @@ struct WindowPreviewCompact: View, Equatable {
 
     var body: some View {
         HStack(spacing: 10) {
-            // App icon
-            if let appIcon = windowInfo.app.icon {
-                Image(nsImage: appIcon)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: appearance.compactModeItemSize.iconSize, height: appearance.compactModeItemSize.iconSize)
-            } else {
-                Image(systemName: "app.fill")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: appearance.compactModeItemSize.iconSize, height: appearance.compactModeItemSize.iconSize)
-                    .foregroundStyle(.secondary)
+            // App icon with shortcut label badge
+            ZStack(alignment: .bottomLeading) {
+                if let appIcon = windowInfo.app.icon {
+                    Image(nsImage: appIcon)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: appearance.compactModeItemSize.iconSize, height: appearance.compactModeItemSize.iconSize)
+                } else {
+                    Image(systemName: "app.fill")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: appearance.compactModeItemSize.iconSize, height: appearance.compactModeItemSize.iconSize)
+                        .foregroundStyle(.secondary)
+                }
+                if windowSwitcherActive, let label = switcherShortcutLabel(localIndex: index, monitorSlot: monitorSlot) {
+                    Text(label)
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .foregroundStyle(.primary)
+                        .frame(width: label.count == 1 ? 14 : label.count == 2 ? 18 : 22, height: 14)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 3, style: .continuous))
+                        .offset(x: -2, y: 2)
+                }
             }
 
             // Title content based on format

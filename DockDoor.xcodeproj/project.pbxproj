@@ -163,6 +163,7 @@
 		BB918BB52CF7613400931236 /* CGRect.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB918BB42CF7613200931236 /* CGRect.swift */; };
 		BBA153F62C115DDA00119C02 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBA153F52C115DDA00119C02 /* AppDelegate.swift */; };
 		BBA153F82C11604400119C02 /* SharedPreviewWindowCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBA153F72C11604400119C02 /* SharedPreviewWindowCoordinator.swift */; };
+                5757904924D94343A88846C2293D0553 /* MultiMonitorPreviewCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 078BA00784DC47E89718AC5CBDF28254 /* MultiMonitorPreviewCoordinator.swift */; };
 		BBA153FA2C11FFD500119C02 /* consts.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBA153F92C11FFD500119C02 /* consts.swift */; };
 		BBA153FC2C12356100119C02 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBA153FB2C12356100119C02 /* main.swift */; };
 		BBAC6B452D15FA8900A0F370 /* AXValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBAC6B442D15FA8800A0F370 /* AXValue.swift */; };
@@ -385,6 +386,7 @@
 		BB90A5EC2DFA13E000857722 /* CalendarInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarInfo.swift; sourceTree = "<group>"; };
 		BB918BB42CF7613200931236 /* CGRect.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CGRect.swift; sourceTree = "<group>"; };
 		BBA153F52C115DDA00119C02 /* AppDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+            078BA00784DC47E89718AC5CBDF28254 /* MultiMonitorPreviewCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiMonitorPreviewCoordinator.swift; sourceTree = "<group>"; };
 		BBA153F72C11604400119C02 /* SharedPreviewWindowCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedPreviewWindowCoordinator.swift; sourceTree = "<group>"; };
 		BBA153F92C11FFD500119C02 /* consts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = consts.swift; sourceTree = "<group>"; };
 		BBA153FB2C12356100119C02 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
@@ -847,6 +849,7 @@
 				BB4ED9082C3CD96D00BBDD16 /* Traffic Light Buttons.swift */,
 				BB1A85F62D08E52A00326297 /* DragPreviewCoordinator.swift */,
 				BBF413912C40618800AA6733 /* FullSizePreviewView.swift */,
+                            078BA00784DC47E89718AC5CBDF28254 /* MultiMonitorPreviewCoordinator.swift */,
 				BBA153F72C11604400119C02 /* SharedPreviewWindowCoordinator.swift */,
 			);
 			path = "Shared Components";
@@ -1180,6 +1183,7 @@
 				BB2106742E830EC5002F87D6 /* WindowDiscoveryShared.swift in Sources */,
 				BB638F042E0217030010077D /* MediaControlButtonRow.swift in Sources */,
 				BB377C492DFD434300FA93DA /* GlobalPadding.swift in Sources */,
+                           5757904924D94343A88846C2293D0553 /* MultiMonitorPreviewCoordinator.swift in Sources */,
 				BB638F162E0218C00010077D /* SharedHoverUtils.swift in Sources */,
 				BBA153F82C11604400119C02 /* SharedPreviewWindowCoordinator.swift in Sources */,
 				BB1865542DD57E18000F34AD /* BaseSettingsView.swift in Sources */,

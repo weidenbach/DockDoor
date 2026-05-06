@@ -47,6 +47,7 @@ private class WindowSwitchingCoordinator {
             } else {
                 coordinator.cycleForward()
             }
+            previewCoordinator.syncMultiMonitorSelection()
         } else if isModifierPressed {
             await initializeWindowSwitching(
                 previewCoordinator: previewCoordinator,
@@ -93,10 +94,6 @@ private class WindowSwitchingCoordinator {
             || (mode == .allWindows && Defaults[.limitSwitcherToFrontmostApp])
         if !isActiveAppMode {
             windows = WindowUtil.groupWindowsByApp(windows)
-        }
-
-        if !isActiveAppMode, Defaults[.showWindowlessAppsInSwitcher] {
-            windows.append(contentsOf: WindowUtil.getWindowlessRunningApps(existingWindows: windowsForWindowlessDetection))
         }
 
         guard !windows.isEmpty else { return }
@@ -606,7 +603,8 @@ class KeybindHelper {
 
                 let searchFrame = SharedPreviewWindowCoordinator.activeInstance?.searchWindowFrame
                 let isInSearchWindow = searchFrame?.contains(clickLocation) ?? false
-                if windowFrame.contains(clickLocation) || isInSearchWindow {
+                let isInMultiMonitorPanel = previewCoordinator.multiMonitorPanelsContain(clickLocation)
+                if windowFrame.contains(clickLocation) || isInSearchWindow || isInMultiMonitorPanel {
                     let flags = event.flags
                     if flags.contains(.maskControl) {
                         var newFlags = flags
@@ -903,6 +901,49 @@ class KeybindHelper {
                 }
             default:
                 break
+            }
+        }
+
+        // Quick-select: per-monitor keyboard rows jump directly to a labeled window.
+        // - Slot 0 (main):   digit keys 1–9
+        // - Slot 1 (second): F1–F12
+        // - Slot 2 (third):  Shift + home-row letters A,S,D,F,G,J,K,L (no H — Cmd+H = hide)
+        // Single-monitor fallback: 1-9 → indices 0-8, a-z → 9+.
+        if previewIsCurrentlyVisible,
+           previewCoordinator.windowSwitcherCoordinator.windowSwitcherActive,
+           !previewCoordinator.windowSwitcherCoordinator.hasActiveSearch,
+           !previewCoordinator.isSearchWindowFocused,
+           flags.intersection([.maskControl]).isEmpty,
+           !(flags.contains(.maskCommand) && getActionForCmdShortcut(keyCode: keyCode) != nil)
+        {
+            // rawChar may be nil for F-keys — handled in monitorSlotForKey via keyCode.
+            let rawChar = NSEvent(cgEvent: event)?.charactersIgnoringModifiers?.lowercased().first
+            var targetIndex: Int?
+
+            if let (slot, localIdx) = monitorSlotForKey(keyCode: keyCode, flags: flags, char: rawChar),
+               let globalIdx = previewCoordinator.globalIndexForMonitorShortcut(monitorSlot: slot, localIndex: localIdx)
+            {
+                targetIndex = globalIdx
+            } else if let c = rawChar, !flags.contains(.maskShift) {
+                // Single-monitor fallback: plain digits and letters only (no Shift — Shift is slot 2).
+                if c.isNumber, let digit = c.wholeNumberValue, digit >= 1, digit <= 9 {
+                    targetIndex = digit - 1
+                } else if c.isLetter, let ascii = c.asciiValue {
+                    targetIndex = 9 + Int(ascii - ("a" as Character).asciiValue!)
+                }
+            }
+            if let idx = targetIndex,
+               idx < previewCoordinator.windowSwitcherCoordinator.windows.count
+            {
+                preventSwitcherHideOnRelease = true
+                return (true, { @MainActor in
+                    self.previewCoordinator.windowSwitcherCoordinator.setIndex(to: idx)
+                    self.previewCoordinator.syncMultiMonitorSelection()
+                    self.previewCoordinator.selectAndBringToFrontCurrentWindow()
+                    self.windowSwitchingCoordinator.cancelSwitching(previewCoordinator: self.previewCoordinator)
+                    self.preventSwitcherHideOnRelease = false
+                    self.hasProcessedModifierRelease = true
+                })
             }
         }
 

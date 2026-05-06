@@ -50,6 +50,9 @@ struct WindowPreviewHoverContainer: View {
     let embeddedContentType: EmbeddedContentType
     let hasScreenRecordingPermission: Bool
     let appearanceOverride: PreviewAppearanceSettings?
+    /// Offset added to local window indices when computing shortcut labels (1-9, a-z).
+    /// Non-zero in multi-monitor mode so labels are unique across all screens.
+    let monitorSlot: Int
 
     @ObservedObject var previewStateCoordinator: PreviewStateCoordinator
 
@@ -123,7 +126,8 @@ struct WindowPreviewHoverContainer: View {
          updateAvailable: Bool,
          embeddedContentType: EmbeddedContentType = .none,
          hasScreenRecordingPermission: Bool,
-         appearanceOverride: PreviewAppearanceSettings? = nil)
+         appearanceOverride: PreviewAppearanceSettings? = nil,
+         monitorSlot: Int = 0)
     {
         self.appName = appName
         self.onWindowTap = onWindowTap
@@ -138,6 +142,7 @@ struct WindowPreviewHoverContainer: View {
         self.embeddedContentType = embeddedContentType
         self.hasScreenRecordingPermission = hasScreenRecordingPermission
         self.appearanceOverride = appearanceOverride
+        self.monitorSlot = monitorSlot
     }
 
     private var minimumEmbeddedWidth: CGFloat {
@@ -1179,6 +1184,7 @@ struct WindowPreviewHoverContainer: View {
                     WindowPreviewCompact(
                         windowInfo: windowInfo,
                         index: index,
+                        monitorSlot: monitorSlot,
                         dockPosition: dockPosition,
                         uniformCardRadius: uniformCardRadius,
                         handleWindowAction: { action in
@@ -1199,6 +1205,7 @@ struct WindowPreviewHoverContainer: View {
                         windowInfo: windowInfo,
                         onTap: onWindowTap,
                         index: index,
+                        monitorSlot: monitorSlot,
                         dockPosition: dockPosition,
                         bestGuessMonitor: bestGuessMonitor,
                         uniformCardRadius: uniformCardRadius,

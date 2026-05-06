@@ -2,6 +2,49 @@ import Defaults
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Carbon virtual key codes for F1–F12 (in order F1…F12).
+let fKeyVirtualCodes: [Int64] = [122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111]
+
+/// Home-row letters for monitor slot 2 (triggered by Shift+letter).
+/// 'h' is excluded because Cmd+H is the system hide shortcut.
+let monitorSlot2Row: [Character] = ["a", "s", "d", "f", "g", "j", "k", "l"]
+
+/// Returns the shortcut label badge string for a window at `localIndex` on `monitorSlot`.
+/// - Slot 0: "1"–"9" (number row)
+/// - Slot 1: "F1"–"F12" (function keys)
+/// - Slot 2: "A","S","D","F","G","J","K","L" (Shift+home-row, shown as uppercase)
+func switcherShortcutLabel(localIndex: Int, monitorSlot: Int) -> String? {
+    switch monitorSlot {
+    case 0: localIndex < 9 ? String(localIndex + 1) : nil
+    case 1: localIndex < fKeyVirtualCodes.count ? "F\(localIndex + 1)" : nil
+    case 2: localIndex < monitorSlot2Row.count ? String(monitorSlot2Row[localIndex]).uppercased() : nil
+    default: nil
+    }
+}
+
+/// Returns (monitorSlot, localIndex) for a key press, or nil if not in any shortcut row.
+/// - `keyCode`: Carbon virtual key code from the CGEvent.
+/// - `flags`: CGEvent modifier flags (Alt held during switcher is fine; Cmd/Ctrl block letters/digits).
+/// - `char`: `charactersIgnoringModifiers?.lowercased().first` — may be nil for F-keys.
+func monitorSlotForKey(keyCode: Int64, flags: CGEventFlags, char: Character?) -> (slot: Int, localIndex: Int)? {
+    // Slot 1: F1–F12, matched by physical keyCode.
+    // F-keys don't carry text (char is nil) so we must match by code.
+    // Allow Cmd (held during Cmd+Tab switcher); only block Ctrl (accessibility shortcuts).
+    if !flags.contains(.maskControl), let idx = fKeyVirtualCodes.firstIndex(of: keyCode) { return (1, idx) }
+
+    // Digit/letter shortcuts conflict with Cmd+letter app shortcuts — block Cmd and Ctrl.
+    guard flags.intersection([.maskCommand, .maskControl]).isEmpty else { return nil }
+
+    // Slot 2: Shift + home-row letter (excluding H — Cmd+H = hide).
+    if flags.contains(.maskShift), let c = char,
+       let idx = monitorSlot2Row.firstIndex(of: c) { return (2, idx) }
+
+    // Slot 0: digit keys 1–9 (no Shift).
+    if !flags.contains(.maskShift), let c = char,
+       c.isNumber, let d = c.wholeNumberValue, d >= 1, d <= 9 { return (0, d - 1) }
+    return nil
+}
+
 struct PreviewAppearanceSettings: Equatable {
     let trafficLightVisibility: TrafficLightButtonsVisibility
     let enabledTrafficLightButtons: Set<WindowAction>
@@ -114,6 +157,8 @@ struct WindowPreview: View, Equatable {
     let windowInfo: WindowInfo
     let onTap: (() -> Void)?
     let index: Int
+    /// Which monitor slot (0 = main, 1 = second, 2 = third) determines the shortcut key row.
+    var monitorSlot: Int = 0
     let dockPosition: DockPosition
     let bestGuessMonitor: NSScreen
     let uniformCardRadius: Bool
@@ -141,7 +186,7 @@ struct WindowPreview: View, Equatable {
         l.index == r.index && l.isSelected == r.isSelected && l.useLivePreview == r.useLivePreview
             && l.skeletonMode == r.skeletonMode && l.dimensions == r.dimensions
             && l.uniformCardRadius == r.uniformCardRadius && l.showAppIconOnly == r.showAppIconOnly
-            && l.windowSwitcherActive == r.windowSwitcherActive
+            && l.windowSwitcherActive == r.windowSwitcherActive && l.monitorSlot == r.monitorSlot
             && l.appearance == r.appearance && l.windowInfo.viewSnapshot == r.windowInfo.viewSnapshot
             && l.backgroundAppearance == r.backgroundAppearance
     }
@@ -493,10 +538,20 @@ struct WindowPreview: View, Equatable {
 
         let appIconContent = Group {
             if let appIcon = windowInfo.app.icon {
-                Image(nsImage: appIcon)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 35, height: 35)
+                ZStack(alignment: .bottomLeading) {
+                    Image(nsImage: appIcon)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 35, height: 35)
+                    if let label = switcherShortcutLabel(localIndex: index, monitorSlot: monitorSlot) {
+                        Text(label)
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .foregroundStyle(.primary)
+                            .frame(width: label.count == 1 ? 14 : label.count == 2 ? 18 : 22, height: 14)
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 3, style: .continuous))
+                            .offset(x: -2, y: 2)
+                    }
+                }
             }
         }
 

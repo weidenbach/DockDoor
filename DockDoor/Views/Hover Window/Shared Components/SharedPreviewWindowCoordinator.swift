@@ -18,6 +18,7 @@ final class SharedPreviewWindowCoordinator: NSPanel {
     let windowSwitcherCoordinator = PreviewStateCoordinator()
     private let dockManager = DockAutoHideManager()
     private var searchWindow: SearchWindow?
+    private let multiMonitorCoordinator = MultiMonitorPreviewCoordinator()
 
     private var appName: String = ""
     var currentlyDisplayedPID: pid_t?
@@ -27,6 +28,31 @@ final class SharedPreviewWindowCoordinator: NSPanel {
     private var pendingShowWorkItem: DispatchWorkItem?
 
     var windowSize: CGSize = getWindowSize()
+
+    /// True when either the main panel or any multi-monitor panel is on screen.
+    override var isVisible: Bool {
+        super.isVisible || multiMonitorCoordinator.hasVisibleWindows
+    }
+
+    /// Whether `point` (in screen coordinates) falls inside any visible multi-monitor panel.
+    func multiMonitorPanelsContain(_ point: NSPoint) -> Bool {
+        multiMonitorCoordinator.getAllWindows().contains { $0.isVisible && $0.frame.contains(point) }
+    }
+
+    /// Returns the global window index for a per-monitor shortcut key press.
+    /// Returns nil if multi-monitor is disabled or the slot/index is out of range.
+    func globalIndexForMonitorShortcut(monitorSlot: Int, localIndex: Int) -> Int? {
+        guard Defaults[.enableMultiMonitorWindowGrouping] else { return nil }
+        return multiMonitorCoordinator.globalIndex(forMonitorSlot: monitorSlot, localIndex: localIndex)
+    }
+
+    /// Propagate the main coordinator's current selection to per-screen coordinators.
+    func syncMultiMonitorSelection() {
+        let selected = windowSwitcherCoordinator.currIndex >= 0
+            ? windowSwitcherCoordinator.windows[safe: windowSwitcherCoordinator.currIndex]
+            : nil
+        multiMonitorCoordinator.syncSelection(selectedWindow: selected)
+    }
 
     private var previousHoverWindowOrigin: CGPoint?
     private var currentDockPosition: DockPosition = .bottom
@@ -135,7 +161,16 @@ final class SharedPreviewWindowCoordinator: NSPanel {
         // Always restore dock auto-hide state, even if the preview isn't visible.
         dockManager.restoreDockState()
 
-        guard isVisible else { return }
+        // Reset switcher state before hiding panels so isVisible becomes false cleanly.
+        let currentDockPos = DockUtils.getDockPosition()
+        let currentScreen = NSScreen.main ?? NSScreen.screens.first!
+        windowSwitcherCoordinator.setWindows([], dockPosition: currentDockPos, bestGuessMonitor: currentScreen)
+        windowSwitcherCoordinator.setShowing(.both, toState: false)
+
+        // Now hide multi-monitor panels (after coordinator reset so isVisible override returns false).
+        multiMonitorCoordinator.hideAllWindows()
+
+        guard super.isVisible else { return }
 
         DragPreviewCoordinator.shared.endDragging()
         hideFullPreviewWindow()
@@ -151,10 +186,6 @@ final class SharedPreviewWindowCoordinator: NSPanel {
         mouseIsWithinPreviewWindow = false
         anchoredDockItem = nil
 
-        let currentDockPos = DockUtils.getDockPosition()
-        let currentScreen = NSScreen.main ?? NSScreen.screens.first!
-        windowSwitcherCoordinator.setWindows([], dockPosition: currentDockPos, bestGuessMonitor: currentScreen)
-        windowSwitcherCoordinator.setShowing(.both, toState: false)
         orderOut(nil)
     }
 
@@ -457,7 +488,11 @@ final class SharedPreviewWindowCoordinator: NSPanel {
         switch dockPosition {
         case .bottom, .cmdTab:
             xPosition = flippedIconRect.midX - (windowSize.width / 2)
-            yPosition = flippedIconRect.minY
+            // maxY = top of icon in NS coords. When auto-hide dock is animating,
+            // AX reports mid-animation positions, so floor at 2× icon height
+            // from screen bottom to clear the dock during the slide-up.
+            let autoHideFloor = screenFrame.minY + iconRect.size.height * 2
+            yPosition = max(flippedIconRect.maxY, autoHideFloor)
         case .left:
             xPosition = flippedIconRect.maxX
             yPosition = flippedIconRect.midY - (windowSize.height / 2) - flippedIconRect.height
@@ -698,6 +733,66 @@ final class SharedPreviewWindowCoordinator: NSPanel {
         dockManager.preventDockHiding(centeredHoverWindowState != nil)
     }
 
+    /// Shows windows on a specific screen in multi-monitor mode
+    private func showWindowsOnScreen(_ windows: [WindowInfo],
+                                     appName: String,
+                                     screen: NSScreen,
+                                     screenId: String,
+                                     dockItemElement: AXUIElement?,
+                                     dockIconRect: CGRect?,
+                                     onWindowTap: (() -> Void)?,
+                                     embeddedContentType: EmbeddedContentType,
+                                     dockPositionOverride: DockPosition?,
+                                     monitorSlot: Int,
+                                     renderStartTime: CFAbsoluteTime?)
+    {
+        let panel = multiMonitorCoordinator.createPreviewPanel(for: screenId)
+        let coordinator = PreviewStateCoordinator()
+
+        let activeDockPosition = dockPositionOverride ?? DockUtils.getDockPosition()
+        coordinator.hasEmbeddedContent = embeddedContentType != .none
+        coordinator.setShowing(.windowSwitcher, toState: true)
+        coordinator.setWindows(windows, dockPosition: activeDockPosition, bestGuessMonitor: screen)
+        coordinator.currIndex = -1
+
+        let updateAvailable = (NSApp.delegate as? AppDelegate)?.updaterState.anUpdateIsAvailable ?? false
+
+        let hoverView = WindowPreviewHoverContainer(appName: appName,
+                                                    onWindowTap: onWindowTap,
+                                                    dockPosition: activeDockPosition,
+                                                    mouseLocation: nil,
+                                                    bestGuessMonitor: screen,
+                                                    dockItemElement: dockItemElement,
+                                                    dockItemFrameOverride: nil,
+                                                    windowSwitcherCoordinator: coordinator,
+                                                    mockPreviewActive: false,
+                                                    updateAvailable: updateAvailable,
+                                                    embeddedContentType: embeddedContentType,
+                                                    hasScreenRecordingPermission: hasScreenRecordingPermission,
+                                                    monitorSlot: monitorSlot)
+        let hostingView = NSHostingView(rootView: hoverView)
+
+        // Remove old content
+        panel.contentView?.removeFromSuperview()
+        panel.contentView = hostingView
+
+        // Register coordinator so tab cycling can sync selection.
+        multiMonitorCoordinator.registerCoordinator(coordinator, windows: windows, for: screenId, monitorSlot: monitorSlot)
+
+        // Show the panel immediately (offscreen at size 1×1) so it's on screen while
+        // SwiftUI performs layout. Then update frame once fittingSize is known.
+        // This avoids blocking the main thread with sequential layout passes per screen.
+        panel.setFrame(CGRect(origin: .zero, size: CGSize(width: 1, height: 1)), display: false)
+        panel.orderFrontRegardless()
+
+        Task { @MainActor [weak self, weak panel] in
+            guard let self, let panel else { return }
+            let fittingSize = hostingView.fittingSize
+            let position = centerWindowOnScreen(size: fittingSize, screen: screen)
+            panel.setFrame(CGRect(origin: position, size: fittingSize), display: true)
+        }
+    }
+
     @MainActor
     private func performShowWindow(appName: String, windows: [WindowInfo], mouseLocation: CGPoint?,
                                    mouseScreen: NSScreen?, dockItemElement: AXUIElement?,
@@ -712,36 +807,94 @@ final class SharedPreviewWindowCoordinator: NSPanel {
         guard !windows.isEmpty else { return }
 
         let shouldCenterOnScreen = centeredHoverWindowState != .none
-
+        let isWindowSwitcher = centeredHoverWindowState == .windowSwitcher
         let screen = mouseScreen ?? NSScreen.main!
-        hideFullPreviewWindow()
 
-        if centeredHoverWindowState == .fullWindowPreview,
-           let windowInfo = windows.first,
-           let windowPosition = try? windowInfo.axElement.position(),
-           let windowScreen = windowPosition.screen()
-        {
-            showFullPreviewWindow(for: windowInfo, on: windowScreen)
-        } else {
+        // Multi-monitor grouping: show each monitor's windows on that monitor,
+        // only for the window switcher (not for dock hover previews)
+        let enableMultiMonitor = Defaults[.enableMultiMonitorWindowGrouping] && isWindowSwitcher
+
+        if enableMultiMonitor {
+            // Hide any previous state
+            multiMonitorCoordinator.hideAllWindows()
+            hideFullPreviewWindow()
+            if super.isVisible { orderOut(nil) }
+
             self.appName = appName
             let activeDockPosition = dockPositionOverride ?? DockUtils.getDockPosition()
             currentDockPosition = activeDockPosition
-
             windowSwitcherCoordinator.hasEmbeddedContent = embeddedContentType != .none
-            windowSwitcherCoordinator.setWindows(windows, dockPosition: activeDockPosition, bestGuessMonitor: screen)
+            self.onWindowTap = onWindowTap
 
+            // Group windows by their screen and show one panel per screen.
+            // Use a stable ordering so monitor slots are consistent across invocations:
+            // main screen = slot 0, then others sorted left-to-right.
+            let windowsByScreen = multiMonitorCoordinator.groupWindowsByScreen(windows)
+            let stableOrder = MultiMonitorPreviewCoordinator.stableScreenOrder(activeScreenIds: Set(windowsByScreen.keys))
+
+            // Re-order the global window list to be monitor-by-monitor (slot 0 first, then slot 1…).
+            // This means Tab cycling naturally stays on one monitor before advancing to the next,
+            // AND every label's local index maps 1-to-1 with consecutive global indices.
+            let orderedWindows = stableOrder.flatMap { windowsByScreen[$0] ?? [] }
+            multiMonitorCoordinator.setGlobalWindows(orderedWindows)
+
+            // Set re-ordered windows on the main coordinator so setIndex(to: globalIdx) is correct.
+            windowSwitcherCoordinator.setWindows(orderedWindows, dockPosition: activeDockPosition, bestGuessMonitor: screen)
+            windowSwitcherCoordinator.setShowing(.windowSwitcher, toState: true)
             if let initialIndex {
                 windowSwitcherCoordinator.setIndex(to: initialIndex, shouldScroll: false)
             } else {
                 windowSwitcherCoordinator.currIndex = -1
             }
 
-            self.onWindowTap = onWindowTap
+            for (slot, screenId) in stableOrder.enumerated() {
+                guard let screenWindows = windowsByScreen[screenId],
+                      let targetScreen = multiMonitorCoordinator.screenForIdentifier(screenId) else { continue }
+                showWindowsOnScreen(screenWindows,
+                                    appName: appName,
+                                    screen: targetScreen,
+                                    screenId: screenId,
+                                    dockItemElement: dockItemElement,
+                                    dockIconRect: dockIconRect,
+                                    onWindowTap: onWindowTap,
+                                    embeddedContentType: embeddedContentType,
+                                    dockPositionOverride: dockPositionOverride,
+                                    monitorSlot: slot,
+                                    renderStartTime: renderStartTime)
+            }
+            // Propagate the initial selection to every per-screen coordinator.
+            syncMultiMonitorSelection()
+        } else {
+            // Original single-monitor behavior
+            hideFullPreviewWindow()
 
-            updateContentViewSizeAndPosition(mouseLocation: mouseLocation, mouseScreen: screen, dockItemElement: dockItemElement, dockIconRect: dockIconRect, animated: !shouldCenterOnScreen,
-                                             centerOnScreen: shouldCenterOnScreen, centeredHoverWindowState: centeredHoverWindowState,
-                                             embeddedContentType: embeddedContentType, dockPositionOverride: dockPositionOverride,
-                                             dockItemFrameOverride: dockItemFrameOverride, renderStartTime: renderStartTime)
+            if centeredHoverWindowState == .fullWindowPreview,
+               let windowInfo = windows.first,
+               let windowPosition = try? windowInfo.axElement.position(),
+               let windowScreen = windowPosition.screen()
+            {
+                showFullPreviewWindow(for: windowInfo, on: windowScreen)
+            } else {
+                self.appName = appName
+                let activeDockPosition = dockPositionOverride ?? DockUtils.getDockPosition()
+                currentDockPosition = activeDockPosition
+
+                windowSwitcherCoordinator.hasEmbeddedContent = embeddedContentType != .none
+                windowSwitcherCoordinator.setWindows(windows, dockPosition: activeDockPosition, bestGuessMonitor: screen)
+
+                if let initialIndex {
+                    windowSwitcherCoordinator.setIndex(to: initialIndex, shouldScroll: false)
+                } else {
+                    windowSwitcherCoordinator.currIndex = -1
+                }
+
+                self.onWindowTap = onWindowTap
+
+                updateContentViewSizeAndPosition(mouseLocation: mouseLocation, mouseScreen: screen, dockItemElement: dockItemElement, dockIconRect: dockIconRect, animated: !shouldCenterOnScreen,
+                                                 centerOnScreen: shouldCenterOnScreen, centeredHoverWindowState: centeredHoverWindowState,
+                                                 embeddedContentType: embeddedContentType, dockPositionOverride: dockPositionOverride,
+                                                 dockItemFrameOverride: dockItemFrameOverride, renderStartTime: renderStartTime)
+            }
         }
     }
 
@@ -759,6 +912,11 @@ final class SharedPreviewWindowCoordinator: NSPanel {
         } else {
             coordinator.cycleForward()
         }
+
+        // Propagate the new selection to the per-screen coordinators so the
+        // correct panel highlights the selected window.
+        let selectedWindow = coordinator.currIndex >= 0 ? coordinator.windows[safe: coordinator.currIndex] : nil
+        multiMonitorCoordinator.syncSelection(selectedWindow: selectedWindow)
     }
 
     @MainActor

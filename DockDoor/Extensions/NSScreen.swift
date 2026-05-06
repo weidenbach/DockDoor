@@ -3,11 +3,9 @@ import Cocoa
 extension NSScreen {
     static func screenFromQuartzPoint(_ point: CGPoint) -> NSScreen {
         let screens = NSScreen.screens
-        let pointInScreenCoordinates = CGPoint(x: point.x, y: NSScreen.screens.first!.frame.maxY - point.y)
-
-        return screens.first { screen in
-            NSPointInRect(pointInScreenCoordinates, screen.frame)
-        } ?? NSScreen.main!
+        guard let primary = screens.first else { return NSScreen.main! }
+        let pointInScreenCoordinates = CGPoint(x: point.x, y: primary.frame.maxY - point.y)
+        return screens.first { NSPointInRect(pointInScreenCoordinates, $0.frame) } ?? NSScreen.main!
     }
 
     func convertPoint(fromGlobal point: CGPoint) -> CGPoint {
