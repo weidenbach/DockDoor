@@ -1004,7 +1004,13 @@ final class SharedPreviewWindowCoordinator: NSPanel {
 
         switch result {
         case .dismissed:
-            hideWindow()
+            // If in window switcher mode, keep switcher open and just remove the window.
+            // Only close the switcher if not in window switcher mode.
+            if coordinator.windowSwitcherActive {
+                coordinator.removeWindow(at: originalIndex)
+            } else {
+                hideWindow()
+            }
         case let .windowUpdated(updatedWindow):
             coordinator.updateWindow(at: originalIndex, with: updatedWindow)
         case .windowRemoved:
