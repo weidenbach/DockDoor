@@ -65,6 +65,8 @@ private class WindowSwitchingCoordinator {
         shouldSelectImmediately = false
 
         var windows = WindowUtil.getAllWindowsOfAllApps()
+        // Filter out windows whose AX elements are no longer valid (closed/invalid windows)
+        windows = windows.filter { WindowUtil.isValidElement($0.axElement) }
         let windowsForWindowlessDetection = windows
 
         let filterBySpace = (mode == .currentSpaceOnly || mode == .activeAppCurrentSpace)
