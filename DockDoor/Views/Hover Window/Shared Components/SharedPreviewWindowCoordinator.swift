@@ -1004,9 +1004,9 @@ final class SharedPreviewWindowCoordinator: NSPanel {
 
         switch result {
         case .dismissed:
-            // If in window switcher mode, keep switcher open and just remove the window.
-            // Only close the switcher if not in window switcher mode.
+            // In window switcher mode, keep switcher open and remove just this window.
             if coordinator.windowSwitcherActive {
+                multiMonitorCoordinator.removeWindow(withId: window.id)
                 coordinator.removeWindow(at: originalIndex)
             } else {
                 hideWindow()
@@ -1014,10 +1014,12 @@ final class SharedPreviewWindowCoordinator: NSPanel {
         case let .windowUpdated(updatedWindow):
             coordinator.updateWindow(at: originalIndex, with: updatedWindow)
         case .windowRemoved:
+            multiMonitorCoordinator.removeWindow(withId: window.id)
             coordinator.removeWindow(at: originalIndex)
         case let .appWindowsRemoved(pid):
             for i in stride(from: coordinator.windows.count - 1, through: 0, by: -1) {
                 if coordinator.windows[i].app.processIdentifier == pid {
+                    multiMonitorCoordinator.removeWindow(withId: coordinator.windows[i].id)
                     coordinator.removeWindow(at: i)
                 }
             }

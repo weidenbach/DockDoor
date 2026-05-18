@@ -134,6 +134,27 @@ final class MultiMonitorPreviewCoordinator {
         }
     }
 
+    // MARK: - Window removal
+
+    /// Removes a window by ID from allWindows, the per-screen window list, and the per-screen coordinator.
+    @MainActor func removeWindow(withId windowId: CGWindowID) {
+        allWindows.removeAll { $0.id == windowId }
+        for screenId in windowsByScreen.keys {
+            guard let idx = windowsByScreen[screenId]?.firstIndex(where: { $0.id == windowId }) else { continue }
+            windowsByScreen[screenId]?.remove(at: idx)
+            coordinatorsByScreen[screenId]?.removeWindow(at: idx)
+            // If the screen has no more windows, tear down its panel.
+            if windowsByScreen[screenId]?.isEmpty == true {
+                previewPanelsByScreen[screenId]?.orderOut(nil)
+                previewPanelsByScreen.removeValue(forKey: screenId)
+                coordinatorsByScreen.removeValue(forKey: screenId)
+                windowsByScreen.removeValue(forKey: screenId)
+                monitorSlotByScreenId.removeValue(forKey: screenId)
+            }
+            break
+        }
+    }
+
     // MARK: - Cleanup
 
     func hideAllWindows() {
