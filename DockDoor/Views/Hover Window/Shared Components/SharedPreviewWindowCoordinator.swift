@@ -993,6 +993,23 @@ final class SharedPreviewWindowCoordinator: NSPanel {
     @MainActor
     func performActionOnCurrentWindow(action: WindowAction) {
         let coordinator = windowSwitcherCoordinator
+
+        // In multi-monitor mode, the per-screen coordinators may have updated selections
+        // that the main coordinator doesn't know about. Sync back from any per-screen
+        // coordinator that has a valid selection.
+        if Defaults[.enableMultiMonitorWindowGrouping], multiMonitorCoordinator.hasVisibleWindows {
+            for (_, perScreenCoordinator) in multiMonitorCoordinator.coordinatorsByScreen ?? [:] {
+                if perScreenCoordinator.currIndex >= 0, perScreenCoordinator.currIndex < perScreenCoordinator.windows.count {
+                    // Found the active per-screen selection; find its corresponding window in the main list
+                    let selectedWindow = perScreenCoordinator.windows[perScreenCoordinator.currIndex]
+                    if let globalIndex = coordinator.windows.firstIndex(where: { $0.id == selectedWindow.id }) {
+                        coordinator.setIndex(to: globalIndex)
+                    }
+                    break
+                }
+            }
+        }
+
         guard coordinator.currIndex >= 0, coordinator.currIndex < coordinator.windows.count else {
             return
         }

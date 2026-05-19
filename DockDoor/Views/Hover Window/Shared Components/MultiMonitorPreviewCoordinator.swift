@@ -6,7 +6,7 @@ import SwiftUI
 final class MultiMonitorPreviewCoordinator {
     private var previewPanelsByScreen: [String: NSPanel] = [:]
     /// Per-screen coordinators keyed by screen identifier.
-    private var coordinatorsByScreen: [String: PreviewStateCoordinator] = [:]
+    private var _coordinatorsByScreen: [String: PreviewStateCoordinator] = [:]
     /// Per-screen window lists (in the same order as the per-screen coordinator's windows).
     private var windowsByScreen: [String: [WindowInfo]] = [:]
     /// Full global window list; used for global-index lookups.
@@ -61,7 +61,7 @@ final class MultiMonitorPreviewCoordinator {
     }
 
     func registerCoordinator(_ coordinator: PreviewStateCoordinator, windows: [WindowInfo], for screenId: String, monitorSlot: Int = 0) {
-        coordinatorsByScreen[screenId] = coordinator
+        _coordinatorsByScreen[screenId] = coordinator
         windowsByScreen[screenId] = windows
         monitorSlotByScreenId[screenId] = monitorSlot
     }
@@ -122,7 +122,7 @@ final class MultiMonitorPreviewCoordinator {
     // Given the globally selected WindowInfo from the main coordinator, find which
     // per-screen coordinator owns it and update its currIndex; clear all others.
     func syncSelection(selectedWindow: WindowInfo?) {
-        for (screenId, coordinator) in coordinatorsByScreen {
+        for (screenId, coordinator) in _coordinatorsByScreen {
             guard let windows = windowsByScreen[screenId] else { continue }
             if let selected = selectedWindow,
                let idx = windows.firstIndex(where: { $0.id == selected.id })
@@ -142,12 +142,12 @@ final class MultiMonitorPreviewCoordinator {
         for screenId in windowsByScreen.keys {
             guard let idx = windowsByScreen[screenId]?.firstIndex(where: { $0.id == windowId }) else { continue }
             windowsByScreen[screenId]?.remove(at: idx)
-            coordinatorsByScreen[screenId]?.removeWindow(at: idx)
+            _coordinatorsByScreen[screenId]?.removeWindow(at: idx)
             // If the screen has no more windows, tear down its panel.
             if windowsByScreen[screenId]?.isEmpty == true {
                 previewPanelsByScreen[screenId]?.orderOut(nil)
                 previewPanelsByScreen.removeValue(forKey: screenId)
-                coordinatorsByScreen.removeValue(forKey: screenId)
+                _coordinatorsByScreen.removeValue(forKey: screenId)
                 windowsByScreen.removeValue(forKey: screenId)
                 monitorSlotByScreenId.removeValue(forKey: screenId)
             }
@@ -162,7 +162,7 @@ final class MultiMonitorPreviewCoordinator {
             window.orderOut(nil)
         }
         previewPanelsByScreen.removeAll()
-        coordinatorsByScreen.removeAll()
+        _coordinatorsByScreen.removeAll()
         windowsByScreen.removeAll()
         allWindows.removeAll()
         monitorSlotByScreenId.removeAll()
@@ -177,4 +177,9 @@ final class MultiMonitorPreviewCoordinator {
     func getAllWindows() -> [NSPanel] { Array(previewPanelsByScreen.values) }
     func panelForScreen(_ screenId: String) -> NSPanel? { previewPanelsByScreen[screenId] }
     func removePanelForScreen(_ screenId: String) { previewPanelsByScreen.removeValue(forKey: screenId) }
+
+    /// Exposed for accessing per-screen coordinators (e.g., to sync selection back to main).
+    var coordinatorsByScreen: [String: PreviewStateCoordinator] {
+        _coordinatorsByScreen
+    }
 }
