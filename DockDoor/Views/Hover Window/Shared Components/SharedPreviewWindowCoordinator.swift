@@ -1017,6 +1017,21 @@ final class SharedPreviewWindowCoordinator: NSPanel {
     }
 
     @MainActor
+    private func terminateAppIfNoWindowsRemain(pid: pid_t) {
+        let coordinator = windowSwitcherCoordinator
+
+        // Check if app has any remaining windows
+        let appHasWindows = coordinator.windows.contains { $0.app.processIdentifier == pid }
+
+        if !appHasWindows {
+            // Terminate the app if it has no remaining windows
+            if let app = NSRunningApplication(processIdentifier: pid) {
+                app.terminate()
+            }
+        }
+    }
+
+    @MainActor
     func performActionOnCurrentWindow(action: WindowAction) {
         let coordinator = windowSwitcherCoordinator
 
@@ -1029,6 +1044,7 @@ final class SharedPreviewWindowCoordinator: NSPanel {
 
         let window = coordinator.windows[coordinator.currIndex]
         let originalIndex = coordinator.currIndex
+        let windowAppPid = window.app.processIdentifier
 
         let result = action.perform(on: window, keepPreviewOnQuit: true)
 
@@ -1038,6 +1054,8 @@ final class SharedPreviewWindowCoordinator: NSPanel {
             if coordinator.windowSwitcherActive {
                 multiMonitorCoordinator.removeWindow(withId: window.id)
                 coordinator.removeWindow(at: originalIndex)
+                // Terminate app if no windows remain
+                terminateAppIfNoWindowsRemain(pid: windowAppPid)
             } else {
                 hideWindow()
             }
@@ -1046,6 +1064,8 @@ final class SharedPreviewWindowCoordinator: NSPanel {
         case .windowRemoved:
             multiMonitorCoordinator.removeWindow(withId: window.id)
             coordinator.removeWindow(at: originalIndex)
+            // Terminate app if no windows remain
+            terminateAppIfNoWindowsRemain(pid: windowAppPid)
         case let .appWindowsRemoved(pid):
             for i in stride(from: coordinator.windows.count - 1, through: 0, by: -1) {
                 if coordinator.windows[i].app.processIdentifier == pid {
