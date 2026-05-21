@@ -920,7 +920,33 @@ final class SharedPreviewWindowCoordinator: NSPanel {
     }
 
     @MainActor
+    private func syncSelectionFromMouseHoverPanel() {
+        // In multi-monitor mode, if the mouse is over a per-screen panel, sync its selection to the main coordinator
+        if Defaults[.enableMultiMonitorWindowGrouping], multiMonitorCoordinator.hasVisibleWindows {
+            let mouseLocation = NSEvent.mouseLocation
+            let allPanels = multiMonitorCoordinator.getAllWindows()
+
+            // Find which panel (if any) contains the mouse
+            if let panelUnderMouse = allPanels.first(where: { $0.isVisible && $0.frame.contains(mouseLocation) }) {
+                for (_, perScreenCoordinator) in multiMonitorCoordinator.coordinatorsByScreen ?? [:] {
+                    if perScreenCoordinator.currIndex >= 0, perScreenCoordinator.currIndex < perScreenCoordinator.windows.count {
+                        // Only use this coordinator if its content is displayed in the panel under mouse
+                        let selectedWindow = perScreenCoordinator.windows[perScreenCoordinator.currIndex]
+                        if let globalIndex = windowSwitcherCoordinator.windows.firstIndex(where: { $0.id == selectedWindow.id }) {
+                            windowSwitcherCoordinator.setIndex(to: globalIndex)
+                        }
+                        break
+                    }
+                }
+            }
+        }
+    }
+
+    @MainActor
     func selectAndBringToFrontCurrentWindow() {
+        // Sync selection from the hovered per-screen panel (if any)
+        syncSelectionFromMouseHoverPanel()
+
         let coordinator = windowSwitcherCoordinator
         let currentIndex = coordinator.currIndex
 
@@ -994,28 +1020,8 @@ final class SharedPreviewWindowCoordinator: NSPanel {
     func performActionOnCurrentWindow(action: WindowAction) {
         let coordinator = windowSwitcherCoordinator
 
-        // In multi-monitor mode, the per-screen coordinators may have updated selections
-        // that the main coordinator doesn't know about. Sync back from the per-screen
-        // coordinator whose panel the mouse is currently over (if any).
-        if Defaults[.enableMultiMonitorWindowGrouping], multiMonitorCoordinator.hasVisibleWindows {
-            let mouseLocation = NSEvent.mouseLocation
-            let allPanels = multiMonitorCoordinator.getAllWindows()
-
-            // Find which panel (if any) contains the mouse
-            if let panelUnderMouse = allPanels.first(where: { $0.isVisible && $0.frame.contains(mouseLocation) }) {
-                for (_, perScreenCoordinator) in multiMonitorCoordinator.coordinatorsByScreen ?? [:] {
-                    if perScreenCoordinator.currIndex >= 0, perScreenCoordinator.currIndex < perScreenCoordinator.windows.count {
-                        // Only use this coordinator if its content is displayed in the panel under mouse
-                        // (We check by seeing if the window is in the per-screen list)
-                        let selectedWindow = perScreenCoordinator.windows[perScreenCoordinator.currIndex]
-                        if let globalIndex = coordinator.windows.firstIndex(where: { $0.id == selectedWindow.id }) {
-                            coordinator.setIndex(to: globalIndex)
-                        }
-                        break
-                    }
-                }
-            }
-        }
+        // Sync selection from the hovered per-screen panel (if any)
+        syncSelectionFromMouseHoverPanel()
 
         guard coordinator.currIndex >= 0, coordinator.currIndex < coordinator.windows.count else {
             return

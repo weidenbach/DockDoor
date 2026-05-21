@@ -921,49 +921,44 @@ extension WindowUtil {
 
         let appElement = AXUIElementCreateApplication(pid)
 
-        guard let axWindows = try? appElement.windows(), !axWindows.isEmpty else {
-            return
-        }
+        // AX window lookup is best-effort — apps like Android Emulator expose no AX windows.
+        // Fall back to the app-level element so we still capture the SCWindow.
+        let axWindows = try? appElement.windows()
+        let windowRef = axWindows.flatMap { findWindow(matchingWindow: window, in: $0) }
 
-        guard let windowRef = findWindow(matchingWindow: window, in: axWindows) else {
-            return
-        }
-
-        let closeButton = try? windowRef.closeButton()
-        let minimizeButton = try? windowRef.minimizeButton()
-        let minimizedState = (try? windowRef.isMinimized()) ?? false
+        let closeButton = windowRef.flatMap { try? $0.closeButton() }
+        let minimizedState = windowRef.flatMap { try? $0.isMinimized() } ?? false
         let hiddenState = app.isHidden
-        let shouldWindowBeCaptured = (closeButton != nil) || (minimizeButton != nil)
+        // Use the matched AX window when available, otherwise use the app element as a stub.
+        let axElement = windowRef ?? appElement
 
-        if shouldWindowBeCaptured {
-            let persistedData = WindowOrderPersistence.getPersistedTimestamp(
-                bundleIdentifier: bundleId,
-                windowTitle: window.title
-            )
-            let lastAccessedTime = persistedData?.lastAccessedTime ?? Date.now
-            let creationTime = persistedData?.creationTime
+        let persistedData = WindowOrderPersistence.getPersistedTimestamp(
+            bundleIdentifier: bundleId,
+            windowTitle: window.title
+        )
+        let lastAccessedTime = persistedData?.lastAccessedTime ?? Date.now
+        let creationTime = persistedData?.creationTime
 
-            var windowInfo = WindowInfo(
-                windowProvider: window,
-                app: app,
-                image: nil,
-                axElement: windowRef,
-                appAxElement: appElement,
-                closeButton: closeButton,
-                lastAccessedTime: lastAccessedTime,
-                creationTime: creationTime,
-                spaceID: window.windowID.cgsSpaces().first.map { Int($0) },
-                screenIdentifier: screenIdentifier(forWindowAt: window.frame.origin),
-                isMinimized: minimizedState,
-                isHidden: hiddenState
-            )
+        var windowInfo = WindowInfo(
+            windowProvider: window,
+            app: app,
+            image: nil,
+            axElement: axElement,
+            appAxElement: appElement,
+            closeButton: closeButton,
+            lastAccessedTime: lastAccessedTime,
+            creationTime: creationTime,
+            spaceID: window.windowID.cgsSpaces().first.map { Int($0) },
+            screenIdentifier: screenIdentifier(forWindowAt: window.frame.origin),
+            isMinimized: minimizedState,
+            isHidden: hiddenState
+        )
 
-            if let image = try? await captureWindowImage(window: window) {
-                windowInfo.image = image
-                windowInfo.imageCapturedTime = Date()
-            }
-            updateDesktopSpaceWindowCache(with: windowInfo)
+        if let image = try? await captureWindowImage(window: window) {
+            windowInfo.image = image
+            windowInfo.imageCapturedTime = Date()
         }
+        updateDesktopSpaceWindowCache(with: windowInfo)
     }
 
     static func captureAndCacheAXWindowInfo(

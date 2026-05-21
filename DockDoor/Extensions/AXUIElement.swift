@@ -81,7 +81,7 @@ extension AXUIElement {
                 token.replaceSubrange(12 ..< 20, with: withUnsafeBytes(of: axId) { Data($0) })
                 if let el = _AXUIElementCreateWithRemoteToken(token as CFData)?.takeRetainedValue(),
                    let subrole = try? el.subrole(),
-                   [kAXStandardWindowSubrole, kAXDialogSubrole].contains(subrole)
+                   [kAXStandardWindowSubrole, kAXDialogSubrole, kAXFloatingWindowSubrole].contains(subrole)
                 {
                     results.append(el)
                 }

@@ -94,7 +94,7 @@ func isValidAXWindowCandidate(_ axWindow: AXUIElement) -> Bool {
     DebugLogger.measureSlow("isValidAXWindowCandidate", thresholdMs: 50) {
         if let role = try? axWindow.role(), role != kAXWindowRole { return false }
         if let subrole = try? axWindow.subrole(),
-           ![kAXStandardWindowSubrole, kAXDialogSubrole].contains(subrole)
+           ![kAXStandardWindowSubrole, kAXDialogSubrole, kAXFloatingWindowSubrole].contains(subrole)
         { return false }
         if let s = try? axWindow.size(), let p = try? axWindow.position() {
             if s == .zero { return false }
