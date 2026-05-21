@@ -719,9 +719,12 @@ extension WindowUtil {
     ) async -> Int {
         let pid = app.processIdentifier
 
-        guard let bundleId = app.bundleIdentifier, !filteredBundleIdentifiers.contains(bundleId) else {
-            purgeAppCache(with: pid)
-            return 0
+        // Apps without a bundle ID (e.g. qemu-system-aarch64) are valid.
+        if let bundleId = app.bundleIdentifier {
+            guard !filteredBundleIdentifiers.contains(bundleId) else {
+                purgeAppCache(with: pid)
+                return 0
+            }
         }
 
         if isAppFiltered(app) {
@@ -879,19 +882,17 @@ extension WindowUtil {
               Defaults[.disableMinWindowSizeFilter] || (window.frame.size.width >= AXMinWindowSize.width && window.frame.size.height >= AXMinWindowSize.height)
         else { return }
 
-        guard let bundleId = app.bundleIdentifier else {
-            purgeAppCache(with: pid)
-            return
-        }
-
-        if filteredBundleIdentifiers.contains(bundleId) {
-            purgeAppCache(with: pid)
-            return
-        }
-
-        if isAppFiltered(app) {
-            purgeAppCache(with: pid)
-            return
+        // Apps without a bundle ID (e.g. qemu-system-aarch64) are valid — only filter
+        // when a bundle ID is present and matches a known filter.
+        if let bundleId = app.bundleIdentifier {
+            if filteredBundleIdentifiers.contains(bundleId) {
+                purgeAppCache(with: pid)
+                return
+            }
+            if isAppFiltered(app) {
+                purgeAppCache(with: pid)
+                return
+            }
         }
 
         if let windowTitle = window.title {
@@ -932,10 +933,9 @@ extension WindowUtil {
         // Use the matched AX window when available, otherwise use the app element as a stub.
         let axElement = windowRef ?? appElement
 
-        let persistedData = WindowOrderPersistence.getPersistedTimestamp(
-            bundleIdentifier: bundleId,
-            windowTitle: window.title
-        )
+        let persistedData = app.bundleIdentifier.flatMap {
+            WindowOrderPersistence.getPersistedTimestamp(bundleIdentifier: $0, windowTitle: window.title)
+        }
         let lastAccessedTime = persistedData?.lastAccessedTime ?? Date.now
         let creationTime = persistedData?.creationTime
 

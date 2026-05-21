@@ -178,6 +178,28 @@ final class MultiMonitorPreviewCoordinator {
     func panelForScreen(_ screenId: String) -> NSPanel? { previewPanelsByScreen[screenId] }
     func removePanelForScreen(_ screenId: String) { previewPanelsByScreen.removeValue(forKey: screenId) }
 
+    /// Finds the panel under the mouse and clears selection on all other screens.
+    /// Returns the screen ID of the hovered panel, or nil if no panel is under the mouse.
+    func syncHoverAndClearOthers(mouseLocation: CGPoint) -> String? {
+        // Find which panel (if any) contains the mouse
+        var hoveredScreenId: String?
+        for (screenId, panel) in previewPanelsByScreen {
+            if panel.isVisible, panel.frame.contains(mouseLocation) {
+                hoveredScreenId = screenId
+                break
+            }
+        }
+
+        // Clear selection on all screens EXCEPT the hovered one
+        for (screenId, coordinator) in _coordinatorsByScreen {
+            if screenId != hoveredScreenId {
+                coordinator.currIndex = -1
+            }
+        }
+
+        return hoveredScreenId
+    }
+
     /// Exposed for accessing per-screen coordinators (e.g., to sync selection back to main).
     var coordinatorsByScreen: [String: PreviewStateCoordinator] {
         _coordinatorsByScreen
