@@ -875,7 +875,7 @@ extension WindowUtil {
 
         guard window.owningApplication != nil,
               window.isOnScreen,
-              window.windowLayer == 0,
+              window.windowLayer >= 0, window.windowLayer <= 5,
               Defaults[.disableMinWindowSizeFilter] || (window.frame.size.width >= AXMinWindowSize.width && window.frame.size.height >= AXMinWindowSize.height)
         else { return }
 

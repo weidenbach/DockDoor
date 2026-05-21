@@ -67,13 +67,14 @@ func mapAXToCG(axWindow: AXUIElement, candidates: [[String: AnyObject]], excludi
 
 // MARK: - Shared Helper Functions
 
-/// Returns CG window candidates for a given PID on layer 0
+/// Returns CG window candidates for a given PID on layers 0-5 (regular and floating windows)
 func getCGWindowCandidates(for pid: pid_t) -> [[String: AnyObject]] {
     let cgAll = (CGWindowListCopyWindowInfo([.excludeDesktopElements], kCGNullWindowID) as? [[String: AnyObject]]) ?? []
     return cgAll.filter { desc in
         let owner = (desc[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value ?? 0
         let layer = (desc[kCGWindowLayer as String] as? NSNumber)?.intValue ?? 0
-        return owner == pid && layer == 0
+        // Accept regular app windows (layer 0-5) to include floating windows and Android emulator
+        return owner == pid && layer >= 0 && layer <= 5
     }
 }
 
@@ -146,7 +147,8 @@ func currentActiveSpaceIDs() -> Set<Int> {
     for desc in list {
         let layer = (desc[kCGWindowLayer as String] as? NSNumber)?.intValue ?? -1
         let isOnscreen = (desc[kCGWindowIsOnscreen as String] as? NSNumber)?.boolValue ?? false
-        guard layer == 0, isOnscreen else { continue }
+        // Accept regular app windows (layer 0-5) for space detection
+        guard layer >= 0, layer <= 5, isOnscreen else { continue }
         let wid = CGWindowID((desc[kCGWindowNumber as String] as? NSNumber)?.uint32Value ?? 0)
         for space in wid.cgsSpaces() {
             result.insert(Int(space))

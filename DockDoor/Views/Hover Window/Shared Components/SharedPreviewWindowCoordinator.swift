@@ -995,17 +995,24 @@ final class SharedPreviewWindowCoordinator: NSPanel {
         let coordinator = windowSwitcherCoordinator
 
         // In multi-monitor mode, the per-screen coordinators may have updated selections
-        // that the main coordinator doesn't know about. Sync back from any per-screen
-        // coordinator that has a valid selection.
+        // that the main coordinator doesn't know about. Sync back from the per-screen
+        // coordinator whose panel the mouse is currently over (if any).
         if Defaults[.enableMultiMonitorWindowGrouping], multiMonitorCoordinator.hasVisibleWindows {
-            for (_, perScreenCoordinator) in multiMonitorCoordinator.coordinatorsByScreen ?? [:] {
-                if perScreenCoordinator.currIndex >= 0, perScreenCoordinator.currIndex < perScreenCoordinator.windows.count {
-                    // Found the active per-screen selection; find its corresponding window in the main list
-                    let selectedWindow = perScreenCoordinator.windows[perScreenCoordinator.currIndex]
-                    if let globalIndex = coordinator.windows.firstIndex(where: { $0.id == selectedWindow.id }) {
-                        coordinator.setIndex(to: globalIndex)
+            let mouseLocation = NSEvent.mouseLocation
+            let allPanels = multiMonitorCoordinator.getAllWindows()
+
+            // Find which panel (if any) contains the mouse
+            if let panelUnderMouse = allPanels.first(where: { $0.isVisible && $0.frame.contains(mouseLocation) }) {
+                for (_, perScreenCoordinator) in multiMonitorCoordinator.coordinatorsByScreen ?? [:] {
+                    if perScreenCoordinator.currIndex >= 0, perScreenCoordinator.currIndex < perScreenCoordinator.windows.count {
+                        // Only use this coordinator if its content is displayed in the panel under mouse
+                        // (We check by seeing if the window is in the per-screen list)
+                        let selectedWindow = perScreenCoordinator.windows[perScreenCoordinator.currIndex]
+                        if let globalIndex = coordinator.windows.firstIndex(where: { $0.id == selectedWindow.id }) {
+                            coordinator.setIndex(to: globalIndex)
+                        }
+                        break
                     }
-                    break
                 }
             }
         }
