@@ -18,9 +18,12 @@ struct UserKeyBind: Codable, Defaults.Serializable {
 private class WindowSwitchingCoordinator {
     private var isProcessingSwitcher = false
     private var uiRenderingTask: Task<Void, Never>?
+    private var cleanupTask: Task<Void, Never>?
     private var currentSessionId = UUID()
     /// When true, initialization should complete but immediately select the window instead of showing UI
     private var shouldSelectImmediately = false
+    /// Tracks whether the user has manually cycled during this session.
+    private var hasUserCycled = false
 
     private static var lastUpdateAllWindowsTime: Date?
     private static let updateAllWindowsThrottleInterval: TimeInterval = 60.0
@@ -41,6 +44,7 @@ private class WindowSwitchingCoordinator {
         if coordinator.isKeybindSessionActive {
             coordinator.hasMovedSinceOpen = false
             coordinator.initialHoverLocation = nil
+            hasUserCycled = true
 
             if isShiftPressed {
                 coordinator.cycleBackward()
@@ -61,12 +65,15 @@ private class WindowSwitchingCoordinator {
         previewCoordinator: SharedPreviewWindowCoordinator,
         mode: SwitcherInvocationMode = .allWindows
     ) async {
-        // Reset the immediate-select flag at start of initialization
+        // Reset per-session flags at start of initialization
         shouldSelectImmediately = false
+        hasUserCycled = false
+        cleanupTask?.cancel()
+        cleanupTask = nil
 
         var windows = WindowUtil.getAllWindowsOfAllApps()
-        // Filter out windows whose AX elements are no longer valid (closed/invalid windows)
-        windows = windows.filter { WindowUtil.isValidElement($0.axElement) }
+        // Note: AX validity filtering is done asynchronously to avoid blocking
+        // the main thread. Stale windows will be cleaned up as a background task.
         let windowsForWindowlessDetection = windows
 
         let filterBySpace = (mode == .currentSpaceOnly || mode == .activeAppCurrentSpace)
@@ -108,8 +115,36 @@ private class WindowSwitchingCoordinator {
         coordinator.initializeForWindowSwitcher(with: windows, dockPosition: DockUtils.getDockPosition(), bestGuessMonitor: targetScreen)
         coordinator.activateKeybindSession()
 
+        // Async: remove stale/closed windows without blocking the main thread.
+        // This cleanup is deferred to prevent blocking UI appearance and is canceled
+        // if a window selection happens before it completes.
+        let allAXElements = windows.map(\.axElement)
+        cleanupTask = Task.detached(priority: .utility) { [weak previewCoordinator] in
+            let invalidAX = allAXElements.filter { !WindowUtil.isValidElement($0) }
+            guard !invalidAX.isEmpty else { return }
+            await MainActor.run { [weak previewCoordinator] in
+                guard let coord = previewCoordinator?.windowSwitcherCoordinator else { return }
+                // Skip window removal while the keybind session is live: showWindow() will
+                // re-apply the snapshot anyway, and removing windows here races with the
+                // setIndex call inside showWindow, corrupting currIndex → -1.
+                guard !coord.isKeybindSessionActive else { return }
+                for ax in invalidAX {
+                    coord.removeWindow(byAx: ax)
+                }
+            }
+        }
+
         // If modifier was released during initialization, immediately select and exit
         if shouldSelectImmediately {
+            // Cancel any pending cleanup to prevent race condition
+            cleanupTask?.cancel()
+            cleanupTask = nil
+
+            // Advance one position if user hasn't cycled and classic ordering is off.
+            // This ensures Alt+Tab twice returns to the original window.
+            if !hasUserCycled, !Defaults[.useClassicWindowOrdering], windows.count >= 2 {
+                coordinator.currIndex = 1
+            }
             if let selectedWindow = coordinator.getCurrentWindow() {
                 selectedWindow.bringToFront()
                 selectedWindow.warpMouseToCenterIfNeeded()
@@ -216,11 +251,22 @@ private class WindowSwitchingCoordinator {
         return NSScreen.screenFromQuartzPoint(mouseLocation)
     }
 
+    /// Selects the current window for immediate activation (pre-UI release or manual enter).
+    /// Cancels any pending async cleanup to prevent race conditions.
+    /// If user hasn't cycled and classic ordering is off, advances by one position
+    /// so Alt+Tab reliably switches to the previous window.
     @MainActor
     func selectCurrentWindow(previewCoordinator: SharedPreviewWindowCoordinator) -> WindowInfo? {
         let coordinator = previewCoordinator.windowSwitcherCoordinator
         guard coordinator.isKeybindSessionActive else { return nil }
 
+        // Cancel any pending cleanup to prevent removing the window we're about to select
+        cleanupTask?.cancel()
+        cleanupTask = nil
+
+        if !hasUserCycled, !Defaults[.useClassicWindowOrdering], coordinator.windows.count >= 2 {
+            coordinator.currIndex = 1
+        }
         let selectedWindow = coordinator.getCurrentWindow()
         currentSessionId = UUID()
         coordinator.deactivateKeybindSession()
@@ -236,6 +282,9 @@ private class WindowSwitchingCoordinator {
     func cancelSwitching(previewCoordinator: SharedPreviewWindowCoordinator) {
         currentSessionId = UUID()
         shouldSelectImmediately = false
+        hasUserCycled = false
+        cleanupTask?.cancel()
+        cleanupTask = nil
         previewCoordinator.windowSwitcherCoordinator.deactivateKeybindSession()
         uiRenderingTask?.cancel()
     }
@@ -792,13 +841,11 @@ class KeybindHelper {
                     preventSwitcherHideOnRelease = true
                     return (true, { @MainActor in
                         self.previewCoordinator.performActionOnCurrentWindow(action: action)
-                        if action == .quit {
-                            if self.previewCoordinator.windowSwitcherCoordinator.windows.isEmpty {
-                                self.windowSwitchingCoordinator.cancelSwitching(previewCoordinator: self.previewCoordinator)
-                                self.preventSwitcherHideOnRelease = false
-                                self.hasProcessedModifierRelease = true
-                            }
-                        } else {
+                        // Only dismiss the switcher once it has no windows left to show.
+                        // Actions like close/minimize/quit remove just the affected window
+                        // (see performActionOnCurrentWindow) and the switcher should stay
+                        // open for the remaining ones.
+                        if self.previewCoordinator.windowSwitcherCoordinator.windows.isEmpty {
                             self.windowSwitchingCoordinator.cancelSwitching(previewCoordinator: self.previewCoordinator)
                             self.preventSwitcherHideOnRelease = false
                             self.hasProcessedModifierRelease = true

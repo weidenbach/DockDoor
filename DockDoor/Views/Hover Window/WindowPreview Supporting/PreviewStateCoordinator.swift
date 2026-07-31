@@ -114,6 +114,11 @@ class PreviewStateCoordinator: ObservableObject {
         shouldScrollToIndex = shouldScroll
         if to >= 0, to < windows.count {
             currIndex = to
+        } else if isKeybindSessionActive, !windows.isEmpty {
+            // During an active keybind session, clamp to a valid index rather than
+            // letting currIndex become -1. This prevents the race where async cleanup
+            // fires between initializeForWindowSwitcher and showWindow.
+            currIndex = to < 0 ? 0 : windows.count - 1
         } else {
             currIndex = -1
         }
@@ -398,7 +403,15 @@ class PreviewStateCoordinator: ObservableObject {
             }
         } else {
             let filtered = filteredWindowIndices()
-            currIndex = filtered.first ?? -1
+            if let first = filtered.first {
+                currIndex = first
+            } else {
+                // No search match — keep a valid index during an active session
+                // so the invariant (currIndex != -1 when windows non-empty) holds.
+                currIndex = isKeybindSessionActive && !windows.isEmpty
+                    ? max(0, min(currIndex, windows.count - 1))
+                    : -1
+            }
         }
     }
 

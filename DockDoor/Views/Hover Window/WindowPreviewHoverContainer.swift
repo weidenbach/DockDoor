@@ -597,7 +597,7 @@ struct WindowPreviewHoverContainer: View {
                     )
                 } else {
                     baseText
-                        .foregroundStyle(Color.primary)
+                        .foregroundStyle(.white)
                         .shadow(stacked: 2, radius: 6)
                         .background(
                             ZStack {
