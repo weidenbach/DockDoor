@@ -97,6 +97,7 @@ private class WindowSwitchingCoordinator {
         }
 
         windows = WindowUtil.sortWindowsForSwitcher(windows)
+        windows = WindowUtil.moveFrontmostWindowToFront(windows)
 
         // Group windows for selected apps (only in multi-app modes)
         let isActiveAppMode = (mode == .activeAppOnly || mode == .activeAppCurrentSpace)
@@ -871,7 +872,9 @@ class KeybindHelper {
             guard Defaults[.enableWindowSwitcher] else { return (false, nil) }
             if WindowUtil.shouldIgnoreKeybindForFrontmostApp() { return (false, nil) }
             switcherSessionActive = true
-            return (true, { await self.handleKeybindActivation(mode: .allWindows) })
+            // Capture the modifier state from this event: by the time the task runs,
+            // a fast release may already have flipped isSwitcherModifierKeyPressed.
+            return (true, { await self.handleKeybindActivation(mode: .allWindows, modifierHeld: isDesiredModifierPressedNow) })
         }
 
         // Check alternate keybind (shares same modifier as primary keybind)
@@ -882,7 +885,7 @@ class KeybindHelper {
                 if WindowUtil.shouldIgnoreKeybindForFrontmostApp() { return (false, nil) }
                 switcherSessionActive = true
                 let mode = Defaults[.alternateKeybindMode]
-                return (true, { await self.handleKeybindActivation(mode: mode) })
+                return (true, { await self.handleKeybindActivation(mode: mode, modifierHeld: true) })
             }
         }
 
@@ -1087,22 +1090,24 @@ class KeybindHelper {
         }
     }
 
+    /// - Parameter modifierHeld: Modifier state captured from the triggering keyDown event.
+    ///   Falls back to the tracked state when nil. Runs the switcher directly (no extra
+    ///   Task hop) so a quick modifier release is processed after initialization and the
+    ///   release handler finds an active session to select from.
     @MainActor
-    private func handleKeybindActivation(mode: SwitcherInvocationMode = .allWindows) {
+    private func handleKeybindActivation(mode: SwitcherInvocationMode = .allWindows, modifierHeld: Bool? = nil) async {
         guard Defaults[.enableWindowSwitcher] else { return }
         hasProcessedModifierRelease = false
         currentInvocationMode = mode
         if Defaults[.focusSearchOnWindowSwitcherOpen], Defaults[.enableWindowSwitcherSearch] {
             preventSwitcherHideOnRelease = true
         }
-        Task { @MainActor in
-            await windowSwitchingCoordinator.handleWindowSwitching(
-                previewCoordinator: previewCoordinator,
-                isModifierPressed: self.isSwitcherModifierKeyPressed,
-                isShiftPressed: self.isShiftKeyPressedGeneral,
-                mode: mode
-            )
-        }
+        await windowSwitchingCoordinator.handleWindowSwitching(
+            previewCoordinator: previewCoordinator,
+            isModifierPressed: modifierHeld ?? isSwitcherModifierKeyPressed,
+            isShiftPressed: isShiftKeyPressedGeneral,
+            mode: mode
+        )
     }
 
     /// Returns the action for a Cmd+key shortcut if the keyCode matches any configured shortcut

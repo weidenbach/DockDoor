@@ -832,14 +832,13 @@ final class SharedPreviewWindowCoordinator: NSPanel {
             let windowsByScreen = multiMonitorCoordinator.groupWindowsByScreen(windows)
             let stableOrder = MultiMonitorPreviewCoordinator.stableScreenOrder(activeScreenIds: Set(windowsByScreen.keys))
 
-            // Re-order the global window list to be monitor-by-monitor (slot 0 first, then slot 1…).
-            // This means Tab cycling naturally stays on one monitor before advancing to the next,
-            // AND every label's local index maps 1-to-1 with consecutive global indices.
-            let orderedWindows = stableOrder.flatMap { windowsByScreen[$0] ?? [] }
-            multiMonitorCoordinator.setGlobalWindows(orderedWindows)
-
-            // Set re-ordered windows on the main coordinator so setIndex(to: globalIdx) is correct.
-            windowSwitcherCoordinator.setWindows(orderedWindows, dockPosition: activeDockPosition, bestGuessMonitor: screen)
+            // Keep the global window list in the switcher's sort order (recently used across all
+            // monitors). Re-ordering it per monitor would make `initialIndex` — computed on the
+            // unordered list before the UI appears — point at a different window, so releasing
+            // before vs. after the preview appeared would select different windows.
+            // Per-monitor labels map to global indices by window ID, not by position.
+            multiMonitorCoordinator.setGlobalWindows(windows)
+            windowSwitcherCoordinator.setWindows(windows, dockPosition: activeDockPosition, bestGuessMonitor: screen)
             windowSwitcherCoordinator.setShowing(.windowSwitcher, toState: true)
             if let initialIndex {
                 windowSwitcherCoordinator.setIndex(to: initialIndex, shouldScroll: false)

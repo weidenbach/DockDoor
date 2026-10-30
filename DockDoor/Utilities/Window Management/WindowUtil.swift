@@ -1187,6 +1187,41 @@ extension WindowUtil {
         sortWindowsWithOptions(windows, sortOrder: Defaults[.windowSwitcherSortOrder])
     }
 
+    /// Moves the window that is actually frontmost right now to index 0 when sorting by
+    /// recency. Cached timestamps can lag behind focus changes made with the mouse
+    /// (delayed/deduplicated observer updates, AX stubs that never match), which would
+    /// otherwise make the switcher pick the already-focused window as "previous" one.
+    static func moveFrontmostWindowToFront(_ windows: [WindowInfo]) -> [WindowInfo] {
+        guard Defaults[.windowSwitcherSortOrder] == .recentlyUsed,
+              windows.count >= 2,
+              let frontmostID = frontmostWindowID(),
+              let index = windows.firstIndex(where: { $0.id == frontmostID }),
+              index > 0
+        else { return windows }
+
+        var reordered = windows
+        let frontmost = reordered.remove(at: index)
+        reordered.insert(frontmost, at: 0)
+        updateTimestampOptimistically(for: frontmost)
+        return reordered
+    }
+
+    /// Returns the ID of the topmost on-screen regular window of the frontmost app.
+    /// CGWindowList returns windows ordered front to back.
+    static func frontmostWindowID() -> CGWindowID? {
+        guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+              let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: AnyObject]]
+        else { return nil }
+
+        for desc in list {
+            let owner = (desc[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value ?? 0
+            let layer = (desc[kCGWindowLayer as String] as? NSNumber)?.intValue ?? -1
+            guard owner == pid, layer == 0 else { continue }
+            return (desc[kCGWindowNumber as String] as? NSNumber).map { CGWindowID($0.uint32Value) }
+        }
+        return nil
+    }
+
     /// Core sorting logic with configurable options
     private static func sortWindowsWithOptions(
         _ windows: [WindowInfo],
