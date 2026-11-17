@@ -936,8 +936,7 @@ extension WindowUtil {
         let persistedData = app.bundleIdentifier.flatMap {
             WindowOrderPersistence.getPersistedTimestamp(bundleIdentifier: $0, windowTitle: window.title)
         }
-        let lastAccessedTime = persistedData?.lastAccessedTime ?? Date.now
-        let creationTime = persistedData?.creationTime
+        let (lastAccessedTime, creationTime) = initialTimestamps(for: window.windowID, persisted: persistedData)
 
         var windowInfo = WindowInfo(
             windowProvider: window,
@@ -1029,6 +1028,8 @@ extension WindowUtil {
             nil
         }
 
+        let (lastAccessedTime, creationTime) = initialTimestamps(for: cgID, persisted: persistedData)
+
         var info = WindowInfo(
             windowProvider: AXFallbackProvider(cgID: cgID),
             app: app,
@@ -1036,8 +1037,8 @@ extension WindowUtil {
             axElement: axWindow,
             appAxElement: appAxElement,
             closeButton: try? axWindow.closeButton(),
-            lastAccessedTime: persistedData?.lastAccessedTime ?? Date(),
-            creationTime: persistedData?.creationTime,
+            lastAccessedTime: lastAccessedTime,
+            creationTime: creationTime,
             spaceID: cgID.cgsSpaces().first.map { Int($0) },
             screenIdentifier: (try? axWindow.position()).flatMap { screenIdentifier(forWindowAt: $0) },
             isMinimized: minimizedState,
@@ -1051,6 +1052,24 @@ extension WindowUtil {
         }
 
         updateDesktopSpaceWindowCache(with: info)
+    }
+
+    /// Recency for a window that enters the cache. Only the window the user is actually looking at
+    /// counts as "used now". Windows found by background scans (re-discovery after a cache drop,
+    /// windows created behind the active app) must not jump ahead of windows the user really used,
+    /// or a quick Alt+Tab selects them instead of the previous window.
+    static func initialTimestamps(
+        for windowID: CGWindowID,
+        persisted: WindowOrderPersistence.PersistedWindowEntry?
+    ) -> (lastAccessed: Date, creation: Date) {
+        let now = Date()
+        let remembered = desktopSpaceWindowCacheManager.removedWindowTimestamps(for: windowID)
+        let creation = remembered?.creation ?? persisted?.creationTime ?? now
+
+        if frontmostWindowID() == windowID {
+            return (now, creation)
+        }
+        return (remembered?.lastAccessed ?? persisted?.lastAccessedTime ?? .distantPast, creation)
     }
 
     private static let minUsableImageDimension = 10

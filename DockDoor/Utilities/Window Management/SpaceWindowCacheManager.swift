@@ -7,7 +7,29 @@ class SpaceWindowCacheManager {
     private var windowCache: [pid_t: Set<WindowInfo>] = [:]
     private let cacheLock = NSLock()
 
+    // Timestamps of windows that dropped out of the cache. A window that is re-discovered later
+    // (failed validation, AX stub mismatch) gets its real recency back instead of "now".
+    private var removedWindowTimestamps: [CGWindowID: (lastAccessed: Date, creation: Date)] = [:]
+    private static let maxRemovedWindowTimestamps = 500
+
+    func removedWindowTimestamps(for windowID: CGWindowID) -> (lastAccessed: Date, creation: Date)? {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        return removedWindowTimestamps[windowID]
+    }
+
     private func notifyCoordinatorOfRemovedWindows(_ removedWindows: Set<WindowInfo>) {
+        for window in removedWindows {
+            removedWindowTimestamps[window.id] = (window.lastAccessedTime, window.creationTime)
+        }
+        if removedWindowTimestamps.count > Self.maxRemovedWindowTimestamps {
+            let oldest = removedWindowTimestamps.sorted { $0.value.lastAccessed < $1.value.lastAccessed }
+                .prefix(removedWindowTimestamps.count - Self.maxRemovedWindowTimestamps)
+            for (id, _) in oldest {
+                removedWindowTimestamps.removeValue(forKey: id)
+            }
+        }
+
         if !removedWindows.isEmpty {
             DispatchQueue.main.async { [weak self] in
                 guard self != nil else { return }
